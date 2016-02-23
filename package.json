@@ -1,0 +1,14 @@
+{
+  "name": "qll-node",
+  "version": "1.0.0",
+  "description": "qland",
+  "main": "index.js",
+  "scripts": {
+    "test": "test"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.13.4"
+  }
+}
