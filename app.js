@@ -95,7 +95,7 @@ notification.on('connection', function(socket) {
           
           test_content = JSON.parse(obj.dc);
           for (var page in test_content)
-            test_content[page].stats =new Array(test_content[page].opt).fill(0);
+            test_content[page].stats =new Array(test_content[page].opt || 2).fill(0);
 
           var refreshStats = function() {
             if(!socket.connected)
@@ -108,7 +108,7 @@ notification.on('connection', function(socket) {
             { 
               clearInterval(intervalID);            
               var keys = [];
-              for(var i=1; i<=test_content[page].opt; i++)
+              for(var i=1; i<=test_content[page].stats.length; i++)
               {
                 keys.push( page.toString() + '.' + i.toString() );
               }
