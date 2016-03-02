@@ -40,7 +40,7 @@ notification.on('connection', function(socket) {
     return;
   }
 
-  var redisClient = createRedisClient(), redisClient2;
+  var redisClient = createRedisClient(), redisClient2 = createRedisClient();
 
   var tcode = signed.tcode;
   var current_page = 1;
@@ -85,8 +85,8 @@ notification.on('connection', function(socket) {
     
     redisClient.hgetall('rb.' + tcode + '.info', function(err,obj) {
       
-      current_page = (!obj.page) ? 1 : parseInt(obj.page);
-      num_users = (!obj.num_users) ? 0 : parseInt(obj.num_users);
+      current_page = (obj.page == null) ? 1 : parseInt(obj.page);
+      num_users = (obj.num_users == null) ? 0 : parseInt(obj.num_users);
 
       // check if test content exists 
       if( obj.test && obj.test != "0" )
@@ -111,6 +111,11 @@ notification.on('connection', function(socket) {
               for(var i=1; i<=test_content[page].stats.length; i++)
               {
                 keys.push( page.toString() + '.' + i.toString() );
+              }
+              if(test_content[page].type == '2') //HACKS
+              {
+                keys.push( page.toString() + '.R.1');
+                keys.push( page.toString() + '.R.2');
               }
 
               if(!redisClient2)
