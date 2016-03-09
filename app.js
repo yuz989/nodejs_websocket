@@ -1,6 +1,6 @@
 var http     = require('http');
 var express  = require('express');
-var redis    = require("redis");
+var redis    = require('redis');
 var socketIO = require('socket.io');
 
 var app = module.exports.app = express();
@@ -30,13 +30,14 @@ notification.on('connection', function(socket) {
   var socket_id = socket.id;
   var signed;
   
+  //IMPORTANT: use JWT instead
   try
   {
     signed = JSON.parse(token);
   }
   catch(err)
   {
-  	console.log('unable to parse token!'); 
+    console.log('unable to parse token!'); 
     return;
   }
 
@@ -45,6 +46,7 @@ notification.on('connection', function(socket) {
   var tcode = signed.tcode;
   var current_page = 1;
   var num_users = 0;
+  var num_onlines = -1;
   var test_content;
   var intervalID;
 
@@ -72,7 +74,6 @@ notification.on('connection', function(socket) {
 
   redisClient.on("message", function (channel, message) {
     var message = JSON.parse(message);
-    console.log('event');
     if(message.page)
       current_page = message.page;
     else if(message.num_users)
@@ -80,108 +81,100 @@ notification.on('connection', function(socket) {
     socket.emit('message', message);
   });
 
-
+  //0. connect to redis
   redisClient.on('connect', function() {
-    
+        
+    //1. get class info
     redisClient.hgetall('rb.' + tcode + '.info', function(err,obj) {
       
       current_page = (obj.page == null) ? 1 : parseInt(obj.page);
       num_users = (obj.num_users == null) ? 0 : parseInt(obj.num_users);
 
-      // check if test content exists 
-      if( obj.test && obj.test != "0" )
-      {
-        redisClient.hgetall('test.' + obj.test, function(err,obj) {
-          
-          test_content = JSON.parse(obj.dc);
-          for (var page in test_content)
-            test_content[page].stats =new Array(test_content[page].opt || 2).fill(0);
+      //2. get book content 
+      redisClient.hgetall('test.' + obj.test, function(err,obj) {
+        
+        test_content = JSON.parse(obj.dc);
+        for (var page in test_content)
+          test_content[page].stats =new Array(test_content[page].opt || 2).fill(0);
 
-          var refreshStats = function() {
-            if(!socket.connected)
+        // getClassroomStats
+        var getClassroomStats = function(callback) {
+          var page = current_page;
+          if( test_content[page] != null )
+          {         
+            var keys = [];
+            for(var i=1; i<=test_content[page].stats.length; i++)
             {
-              clearInterval(intervalID);
-              return;
+              keys.push( page.toString() + '.' + i.toString() );
             }
-            var page = current_page;
-            if( test_content[page] != null )
-            { 
-              clearInterval(intervalID);            
-              var keys = [];
-              for(var i=1; i<=test_content[page].stats.length; i++)
-              {
-                keys.push( page.toString() + '.' + i.toString() );
-              }
-              if(test_content[page].type == '2') //HACKS
-              {
-                keys.push( page.toString() + '.R.1');
-                keys.push( page.toString() + '.R.2');
-              }
-
-              if(!redisClient2)
-              {
-                redisClient2 = createRedisClient();    
-                redisClient2.on('connect', function(){
-
-                  redisClient2.hmget('rb.' + tcode + '.stats',keys, function(err,obj) {
-                    if(page == current_page)
-                    { 
-                      var update = false;
-                      for(var i in obj)
-                      { 
-                        if(obj[i] && test_content[page].stats[i] != parseInt(obj[i]))
-                        {
-                          update = true;
-                          test_content[page].stats[i] = parseInt(obj[i]);
-                        }
-                      }
-                      if(update)
-                      {
-                        socket.emit('stats', {page: page, stats: test_content[page].stats});
-                        console.log('emit');
-                      }
-                    }
-                    intervalID = setInterval(refreshStats, 5000);
-                  });  
-
-                });
-              }
-              else
-              {
-                  // redundant
-                  redisClient2.hmget('rb.' + tcode + '.stats',keys, function(err,obj) {
-                    if(page == current_page)
-                    { 
-                      var update = false;
-                      for(var i in obj)
-                      { 
-                        if(obj[i] && test_content[page].stats[i] != parseInt(obj[i]))
-                        {
-                          update = true;
-                          test_content[page].stats[i] = parseInt(obj[i]);
-                        }
-                      }
-                      if(update)
-                      {
-                        socket.emit('stats', {page: page, stats: test_content[page].stats});
-                        console.log('emit');
-                      }
-                    }
-                    intervalID = setInterval(refreshStats, 5000);
-                  });    
-                  // end redundant                               
-              }
+            if(test_content[page].type == '2') //HACKS
+            {
+              keys.push( page.toString() + '.R.1');
+              keys.push( page.toString() + '.R.2');
             }  
-          };    
-          intervalID = setInterval(refreshStats, 5000);
 
-          redisClient.subscribe('rb.' + tcode + '.channel'); 
-        });
-      }
-      else  // no test content
-        redisClient.subscribe('rb.' + tcode + '.channel');
-    });    
-    
-  });
+            redisClient2.hmget('rb.' + tcode + '.stats',keys, function(err,obj) {
+              if(page == current_page)
+              { 
+                var update = false;
+                for(var i in obj)
+                { 
+                  if(obj[i] && test_content[page].stats[i] != parseInt(obj[i]))
+                  {
+                    update = true;
+                    test_content[page].stats[i] = parseInt(obj[i]);
+                  }
+                }
+                if(update)
+                {
+                  socket.emit('stats', {page: page, stats: test_content[page].stats});
+                }
+              }
+            });
+          }
+          intervalID = setInterval(poll, 5000);
+        } //end stats   
+        
+        // numOnlines 
+        var getNumOnlines = function() {
+          var timestamp = Math.floor(Date.now() * 0.001) - 60;  // remove users from available list by timestamp
+          redisClient2.zremrangebyscore('rb.' + tcode + '.online', '-inf', '(' + timestamp.toString(), function() {
+            redisClient2.zcard('rb.' + tcode + '.online', function(err, obj) {
+              var new_num_onlines = parseInt(obj); 
+
+              console.log('new:' + new_num_onlines.toString() );
+
+              if( num_onlines != new_num_onlines )
+              {
+                num_onlines = new_num_onlines;
+                console.log('emit:' + num_onlines.toString() );
+                socket.emit('message', {num_onlines:num_onlines});  
+              }
+              getClassroomStats();
+            });                                      
+          });
+        };
+
+        redisClient.subscribe('rb.' + tcode + '.channel'); 
+
+        // poll function
+        var poll = function() {
+          if(!socket.connected)
+          {
+            clearInterval(intervalID);
+            return;
+          }
+          clearInterval(intervalID);
+          getNumOnlines();
+        };
+        intervalID = setInterval(poll, 5000);
+
+
+      }); //end 2
+    }); //end 1 
+  }); // end 0
   
-});
+}); //end onSocketConnect
+
+
+
