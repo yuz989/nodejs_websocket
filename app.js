@@ -118,15 +118,15 @@ notification.on('connection', function(socket) {
         if( test_content[page] != null )
         {         
           var keys = [];
-          for(var i=1; i<=test_content[page].stats.length; i++)
+          for(var i=1; i<=test_content[page].opt; i++)
           {
             keys.push(page.toString() + '.' + i.toString());
           }
           if(test_content[page].type == '2') //HACKS
           {
             keys.push(page.toString() + '.R.1');
-            keys.push(page.toString() + '.R.2');
-          }  
+            keys.push(page.toString() + '.R.2');           
+          }
 
           redisClient2.hmget(RKEY_STATS, keys, function(err,obj) {
             if(page == current_page)
@@ -239,7 +239,7 @@ notification.on('connection', function(socket) {
         redisClient.hgetall('test.' + objInfo.test, function(err,objTest) {
           test_content = JSON.parse(objTest.dc);
           for (var page in test_content)
-            test_content[page].stats =new Array(test_content[page].opt || 2).fill(0);                    
+            test_content[page].stats = new Array(test_content[page].opt || 2).fill(0);                    
           
           intervalID = setInterval(poll, 5000);  
 
